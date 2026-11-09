@@ -65,6 +65,13 @@ const 許可證對照 = {
   "衛部藥輸字第028907號": "糖平美膜衣錠 2.5/850 毫克",
   "衛部藥輸字第028857號": "歐舒卡膜衣錠 10/40 毫克"
 };
+// 品項清單：沒有條碼、也沒有許可證字號時（例如保健食品），用外盒文字比對這份清單
+// 關鍵字放中文名、英文名、品牌等外盒上看得到的字
+const 品項清單 = [
+  {名稱:"醣瑩得 50/850 毫克膜衣錠", 關鍵字:["醣瑩得","Gluphor","Sitagliptin"]},
+  {名稱:"糖平美膜衣錠 2.5/850 毫克", 關鍵字:["糖平美","Linagliptin","Sandoz"]},
+  {名稱:"歐舒卡膜衣錠 10/40 毫克", 關鍵字:["歐舒卡","Olmecard","Olmesartan"]}
+];
 // 條碼對照表：日後由醫師擴充（國際條碼 → 藥名）
 const 藥品對照 = {
   "4719893930900": "糖平美膜衣錠 2.5/850 毫克（衛部藥輸字第028907號）",
@@ -108,9 +115,9 @@ function render(){
   let h=`<div class="card"><div class="step">第 ${S.i+1} 張</div><h2>${st.title}</h2>
     <div class="demo">${demoSVG(st.demo)}</div>
     <ul class="tips">${st.tips.map(x=>`<li>${x}</li>`).join('')}${S.i==0?共同提醒.map(x=>`<li>${x}</li>`).join(''):''}</ul></div>`;
-  if(S.i>0 && S.code) h=`<div class="card idbox">藥品：<b>${S.name||'（未在對照表）'}</b><br><span class="muted">${S.lic&&S.code===S.lic?S.lic:'條碼 '+S.code}</span></div>`+h;
+  if(S.i>0 && S.code) h=`<div class="card idbox">藥品：<b>${S.name||'（未在對照表）'}</b><br><span class="muted">${S.code.startsWith('品項_')?'由清單選擇':(S.lic&&S.code===S.lic?S.lic:'條碼 '+S.code)}</span></div>`+h;
   if(p){
-    h+=`<div class="card preview"><img src="${p.url}">${qcHTML(p.qc)}${(S.i==0||(S.i==1&&(S.idPending||S.lic)))?idHTML():''}</div>`;
+    h+=`<div class="card preview"><img src="${p.url}">${qcHTML(p.qc)}${(S.i==0||(S.i==1&&(S.idPending||S.lic||S.idTried)))?idHTML():''}</div>`;
     h+=`<button class="btn main" id="next" ${S.idPending?'disabled':''}>下一張</button><button class="btn sub" id="shoot">重拍</button>`;
   } else {
     h+=`<button class="btn main" id="shoot">📷 拍照</button>`;
@@ -120,15 +127,25 @@ function render(){
   $('#shoot').onclick=()=>{cam.value='';cam.click();};
   if($('#next')) $('#next').onclick=()=>{S.i++;render();scrollTo(0,0);};
   if($('#back')) $('#back').onclick=()=>{S.i--;render();scrollTo(0,0);};
+  document.querySelectorAll('.pick').forEach(b=>b.onclick=()=>choose((S.cands||[])[+b.dataset.n]));
+  if($('#q')) $('#q').oninput=()=>{const v=$('#q').value.trim().toLowerCase();const r=v?品項清單.filter(it=>(it.名稱+it.關鍵字.join(' ')).toLowerCase().includes(v)).slice(0,6):[];
+    $('#qres').innerHTML=r.map((it,k)=>`<button class="btn sub qpick" data-n="${品項清單.indexOf(it)}" style="font-size:16px;padding:10px">${it.名稱}</button>`).join('');
+    document.querySelectorAll('.qpick').forEach(b=>b.onclick=()=>choose(品項清單[+b.dataset.n].名稱));};
   if($('#skipcode')) $('#skipcode').onclick=()=>{S.code=null;S.name=null;S.idPending=false;S.i++;render();scrollTo(0,0);};
 }
 
 function idHTML(){
   if(S.idPending) return `<div class="qc warn"><span class="spin"></span>${S.idMsg||'正在辨識條碼…'}</div>`;
+  if(S.code&&S.code.startsWith('品項_')) return `<div class="qc ok idbox">✔ 已選擇品項<br><b>${S.name}</b></div>`;
   if(S.lic && S.code===S.lic) return `<div class="qc ok idbox">✔ 已從文字辨識出許可證字號<br><span class="code" style="font-size:19px">${S.lic}</span><br>${S.name?('藥品：<b>'+S.name+'</b>'):(S.hint?('辨識到：'+S.hint+'<br>'):'')+'<span class="muted">這個許可證還不在對照表，醫師之後會補上藥名</span>'}</div>`;
   if(S.code && !S.code.startsWith('無條碼')) return `<div class="qc ok idbox">✔ 已辨識條碼<br><span class="code">${S.code}</span><br>${S.name?('藥品：<b>'+S.name+'</b>'):'<span class="muted">這個條碼還不在對照表，醫師之後會補上藥名</span>'}</div>`;
   if(S.code) return `<div class="qc warn">未讀到條碼，已改用編號 ${S.code}</div>`;
-  return `<div class="qc bad">讀不到條碼，也讀不到許可證字號。請靠近一點重拍；或直接下一張，拍外盒正面時會再辨識一次。<button class="btn gray" id="skipcode" style="font-size:15px;padding:10px">直接下一張</button></div>`;
+  const c=(S.cands||[]);
+  return `<div class="qc bad">讀不到條碼，也讀不到許可證字號。${c.length?'依外盒文字，可能是：':'請從清單選擇品項，或直接下一張，拍外盒正面時會再辨識一次。'}
+   ${c.map((n,k)=>`<button class="btn sub pick" data-n="${k}" style="font-size:16px;padding:10px">${n}</button>`).join('')}
+   <input id="q" placeholder="輸入一兩個字找品項" style="width:100%;margin-top:10px;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px">
+   <div id="qres"></div>
+   <button class="btn gray" id="skipcode" style="font-size:15px;padding:10px">清單裡沒有（新品項），直接下一張</button></div>`;
 }
 
 function qcHTML(q){
@@ -182,6 +199,7 @@ async function readBarcode(img){
   }
   return null;
 }
+function choose(n){S.name=n;S.code='品項_'+n.split(' ')[0];S.lic=null;render();}
 let _ocrW=null;
 function loadScript(src){return new Promise((ok,no)=>{const e=document.createElement('script');e.src=src;e.onload=ok;e.onerror=no;document.head.appendChild(e);});}
 async function ocrText(img){
@@ -192,16 +210,28 @@ async function ocrText(img){
   return (await _ocrW.recognize(c)).data.text;
 }
 function parseLic(t){
-  const z=t.replace(/[\s|﹍﹒‧・]/g,'');
-  const m=z.match(/衛?[部署]?[生]?[藥樂]?([製輸])[字宇子]?第?(\d{6})號?/);
+  const z=t.replace(/[\s|﹍﹒‧・]/g,'').replace(/宇|子/g,'字').replace(/樂/g,'藥');
+  let m=z.match(/衛?([部署])?(藥|醫器|健食)(陸輸|製|輸)?([壹貳])?(規)?字第?([A-Z]?\d{5,6})號?/);
+  if(!m){m=z.match(/(健食)(規)?字第?([A-Z]?\d{5,6})/); if(m) return '衛部健食'+(m[2]||'')+'字第'+m[3]+'號';}
   if(!m) return null;
-  return '衛部藥'+m[1]+'字第'+m[2]+'號';
+  if(!m[3]&&m[2]==='藥') return null;
+  return '衛'+(m[1]||'部')+m[2]+(m[3]||'')+(m[4]||'')+(m[5]||'')+'字第'+m[6]+'號';
+}
+function matchItems(t){
+  const z=t.replace(/\s/g,'').toLowerCase(); const out=[];
+  for(const it of 品項清單){let best=0;
+    for(const k of it.關鍵字){const kk=k.toLowerCase();
+      if(z.includes(kk)){best=Math.max(best,1);continue;}
+      if(/[一-鿿]/.test(k)&&k.length>=2){let hit=0,n=0;for(let i=0;i<k.length-1;i++){n++;if(z.includes(k.slice(i,i+2)))hit++;}best=Math.max(best,n?hit/n*0.8:0);}
+    }
+    if(best>=0.4) out.push([best,it.名稱]);}
+  return out.sort((a,b)=>b[0]-a[0]).slice(0,4).map(x=>x[1]);
 }
 function parseHint(t){const l=t.split('\n').map(x=>x.trim()).find(x=>/\d+\s*\/?\s*\d*\s*mg|Tablets|Capsules|毫克/i.test(x));return l?l.replace(/[^\w\u4e00-\u9fff\/\.\-\s()]/g,'').trim().slice(0,60):null;}
 async function identifyByText(img){
   S.idPending=true;S.idMsg='讀不到條碼，改用文字辨識許可證字號…（第一次使用需下載辨識資料，約 30～60 秒）';render();
   try{const t=await ocrText(img);const lic=parseLic(t);S.hint=parseHint(t);
-    if(lic){S.lic=lic;S.code=lic;S.name=許可證對照[lic]||null;}
+    if(lic){S.lic=lic;S.code=lic;S.name=許可證對照[lic]||null;} else {S.cands=matchItems(t);}
   }catch(e){console.log(e);}
   S.idPending=false;
 }
@@ -219,7 +249,7 @@ cam.onchange=async()=>{
     if(code){S.code=code;S.name=藥品對照[code]||null;}
     else await identifyByText(img);
   } else if(S.i==1 && !S.code){
-    await identifyByText(img);
+    S.idTried=true; await identifyByText(img);
   }
   render();
 };
